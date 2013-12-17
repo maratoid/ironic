@@ -276,6 +276,10 @@ class ExclusiveLockRequired(NotAuthorized):
                 "but the current context has a shared lock.")
 
 
+class NodeMaintenanceFailure(Invalid):
+    message = _("Maintenance failed for node %(node)s: %(reason)s")
+
+
 class NodeInUse(InvalidState):
     message = _("Unable to complete the requested action because node "
                 "%(node)s is currently in use by another process.")
