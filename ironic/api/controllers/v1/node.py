@@ -108,6 +108,8 @@ class NodeStatesController(rest.RestController):
         # TODO(lucasagomes): Test if target is a valid state and if it's able
         # to transition to the target state from the current one
         rpc_node = objects.Node.get_by_uuid(pecan.request.context, node_uuid)
+        topic = pecan.request.rpcapi.get_topic_for(rpc_node)
+
         if rpc_node.target_power_state is not None:
             raise wsme.exc.ClientSideError(_("Power operation for node %s is "
                                              "already in progress.") %
@@ -116,8 +118,9 @@ class NodeStatesController(rest.RestController):
         # Note that there is a race condition. The node state(s) could change
         # by the time the RPC call is made and the TaskManager manager gets a
         # lock.
-        pecan.request.rpcapi.change_node_power_state(pecan.request.context,
-                                                     node_uuid, target)
+        pecan.request.rpcapi.change_node_power_state(
+                pecan.request.context, node_uuid, target, topic)
+
         # FIXME(lucasagomes): Currently WSME doesn't support returning
         # the Location header. Once it's implemented we should use the
         # Location to point to the /states subresource of the node so
@@ -141,6 +144,8 @@ class NodeStatesController(rest.RestController):
 
         """
         rpc_node = objects.Node.get_by_uuid(pecan.request.context, node_uuid)
+        topic = pecan.request.rpcapi.get_topic_for(rpc_node)
+
         if rpc_node.target_provision_state is not None:
             msg = _('Node %s is already being provisioned.') % rpc_node['uuid']
             LOG.exception(msg)
@@ -156,11 +161,11 @@ class NodeStatesController(rest.RestController):
         # lock.
 
         if target == ir_states.ACTIVE:
-            pecan.request.rpcapi.do_node_deploy(pecan.request.context,
-                                                node_uuid)
+            pecan.request.rpcapi.do_node_deploy(
+                    pecan.request.context, node_uuid, topic)
         elif target == ir_states.DELETED:
-            pecan.request.rpcapi.do_node_tear_down(pecan.request.context,
-                                                   node_uuid)
+            pecan.request.rpcapi.do_node_tear_down(
+                    pecan.request.context, node_uuid, topic)
         else:
             msg = (_("Invalid state '%(state)s' requested for node %(node)s.")
                    % {'state': target, 'node': node_uuid})
@@ -328,14 +333,15 @@ class NodeVendorPassthruController(rest.RestController):
         :param data: body of data to supply to the specified method.
         """
         # Raise an exception if node is not found
-        objects.Node.get_by_uuid(pecan.request.context, node_uuid)
+        rpc_node = objects.Node.get_by_uuid(pecan.request.context, node_uuid)
+        topic = pecan.request.rpcapi.get_topic_for(rpc_node)
 
         # Raise an exception if method is not specified
         if not method:
             raise wsme.exc.ClientSideError(_("Method not specified"))
 
         return pecan.request.rpcapi.vendor_passthru(
-                pecan.request.context, node_uuid, method, data)
+                pecan.request.context, node_uuid, method, data, topic)
 
 
 class NodesController(rest.RestController):
@@ -479,9 +485,10 @@ class NodesController(rest.RestController):
     def validate(self, node_uuid):
         """Validate the driver interfaces."""
         # check if node exists
-        node = objects.Node.get_by_uuid(pecan.request.context, node_uuid)
+        rpc_node = objects.Node.get_by_uuid(pecan.request.context, node_uuid)
+        topic = pecan.request.rpcapi.get_topic_for(rpc_node)
         return pecan.request.rpcapi.validate_driver_interfaces(
-                                        pecan.request.context, node.uuid)
+                pecan.request.context, rpc_node.uuid, topic)
 
     @wsme_pecan.wsexpose(Node, types.uuid)
     def get_one(self, node_uuid):
@@ -523,6 +530,7 @@ class NodesController(rest.RestController):
             raise exception.OperationNotPermitted
 
         rpc_node = objects.Node.get_by_uuid(pecan.request.context, node_uuid)
+        topic = pecan.request.rpcapi.get_topic_for(rpc_node)
 
         # Check if node is transitioning state
         if rpc_node['target_power_state'] or \
@@ -544,8 +552,8 @@ class NodesController(rest.RestController):
                 rpc_node[field] = getattr(node, field)
 
         try:
-            new_node = pecan.request.rpcapi.update_node(pecan.request.context,
-                                                        rpc_node)
+            new_node = pecan.request.rpcapi.update_node(
+                    pecan.request.context, rpc_node, topic)
         except Exception as e:
             with excutils.save_and_reraise_exception():
                 LOG.exception(e)
