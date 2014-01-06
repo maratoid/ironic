@@ -55,6 +55,45 @@
 
 
 #
+# Options defined in ironic.common.neutronv2.neutron
+#
+
+# URL for connecting to neutron (string value)
+#neutron_url=http://127.0.0.1:9696
+
+# timeout value for connecting to neutron in seconds (integer
+# value)
+#neutron_url_timeout=30
+
+# username for connecting to neutron in admin context (string
+# value)
+#neutron_admin_username=<None>
+
+# password for connecting to neutron in admin context (string
+# value)
+#neutron_admin_password=<None>
+
+# tenant name for connecting to neutron in admin context
+# (string value)
+#neutron_admin_tenant_name=<None>
+
+# auth url for connecting to neutron in admin context (string
+# value)
+#neutron_admin_auth_url=http://localhost:5000/v2.0
+
+# if set, ignore any SSL validation issues (boolean value)
+#neutron_api_insecure=false
+
+# auth strategy for connecting to neutron in admin context
+# (string value)
+#neutron_auth_strategy=keystone
+
+# Location of ca certificates file to use for neutron client
+# requests. (string value)
+#neutron_ca_certificates_file=<None>
+
+
+#
 # Options defined in ironic.common.paths
 #
 

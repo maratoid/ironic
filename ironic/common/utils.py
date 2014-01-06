@@ -493,3 +493,20 @@ def is_uuid_like(val):
         return str(uuid.UUID(val)) == val
     except (TypeError, ValueError, AttributeError):
         return False
+
+
+def metadata_to_dict(metadata):
+    result = {}
+    for item in metadata:
+        if not item.get('deleted'):
+            result[item['key']] = item['value']
+    return result
+
+
+def instance_sys_meta(instance):
+    if not instance.get('system_metadata'):
+        return {}
+    if isinstance(instance['system_metadata'], dict):
+        return instance['system_metadata']
+    else:
+        return metadata_to_dict(instance['system_metadata'])

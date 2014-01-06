@@ -1,5 +1,4 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
+#
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -118,6 +117,10 @@ class Invalid(IronicException):
     code = 400
 
 
+class InvalidInput(Invalid):
+    msg_fmt = _("Invalid input received") + ": %(reason)s"
+
+
 class Conflict(IronicException):
     message = _('Conflict.')
     code = 409
@@ -224,6 +227,28 @@ class NodeAssociated(InvalidState):
 
 class PortNotFound(NotFound):
     message = _("Port %(port)s could not be found.")
+
+
+class PortInUse(Invalid):
+    message = _("Port %(port_id)s is still in use.")
+
+
+class PortNotUsable(Invalid):
+    message = _("Port %(port_id)s not usable for instance %(instance)s.")
+
+
+class NoUniqueMatch(IronicException):
+    message = _("No Unique Match Found.")
+    code = 409
+
+
+class SecurityGroupNotFound(NotFound):
+    message = _("Security group %(security_group_id)s not found.")
+
+
+class SecurityGroupCannotBeApplied(Invalid):
+    message = _("Network requires port_security_enabled and subnet associated"
+                " in order to apply security groups.")
 
 
 class ChassisNotFound(NotFound):
