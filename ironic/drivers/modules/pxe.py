@@ -122,9 +122,10 @@ def _parse_driver_info(node):
 
     #TODO(ghe): Should we get rid of swap partition?
     d_info['swap_mb'] = info.get('pxe_swap_mb', 1)
+    d_info['ephemeral_gb'] = info.get('pxe_ephemeral_gb', 0)
     d_info['key_data'] = info.get('pxe_key_data', None)
 
-    for param in ('root_gb', 'swap_mb'):
+    for param in ('root_gb', 'swap_mb', 'ephemeral_gb'):
         try:
             int(d_info[param])
         except ValueError:
@@ -594,8 +595,8 @@ class VendorPassthru(base.VendorInterface):
                   'pxe_config_path': _get_pxe_config_file_path(
                                                     node['instance_uuid']),
                   'root_mb': 1024 * int(d_info['root_gb']),
-                  'swap_mb': int(d_info['swap_mb'])
-
+                  'swap_mb': int(d_info['swap_mb']),
+                  'ephemeral_mb': 1024 * int(d_info['ephemeral_gb'])
             }
 
         missing = [key for key in params.keys() if params[key] is None]

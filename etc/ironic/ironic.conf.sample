@@ -134,6 +134,15 @@
 
 
 #
+# Options defined in ironic.drivers.modules.deploy_utils
+#
+
+# The default format an ephemeral_volume will be formatted
+# with on creation. (string value)
+#default_ephemeral_format=ext3
+
+
+#
 # Options defined in ironic.openstack.common.db.sqlalchemy.session
 #
 
