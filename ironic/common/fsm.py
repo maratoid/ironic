@@ -62,6 +62,7 @@ class FSM(object):
         self._transitions = {}
         self._states = OrderedDict()
         self._start_state = start_state
+        self._target_state = None
         self._current = None
         self.frozen = False
 
@@ -76,13 +77,17 @@ class FSM(object):
         return None
 
     @property
+    def target_state(self):
+        return self._target_state
+
+    @property
     def terminated(self):
         """Returns whether the state machine is in a terminal state."""
         if self._current is None:
             return False
         return self._states[self._current.name]['terminal']
 
-    def add_state(self, state, terminal=False, on_enter=None, on_exit=None):
+    def add_state(self, state, terminal=False, on_enter=None, on_exit=None, target=None):
         """Adds a given state to the state machine.
 
         The on_enter and on_exit callbacks, if provided will be expected to
@@ -99,11 +104,16 @@ class FSM(object):
             assert six.callable(on_enter), "On enter callback must be callable"
         if on_exit is not None:
             assert six.callable(on_exit), "On exit callback must be callable"
+        if target is not None and target not in self._states:
+            raise excp.InvalidState("Target state '%s' does not exist"
+                    % target)
+
         self._states[state] = {
             'terminal': bool(terminal),
             'reactions': {},
             'on_enter': on_enter,
             'on_exit': on_exit,
+            'target': target,
         }
         self._transitions[state] = OrderedDict()
 
@@ -175,6 +185,16 @@ class FSM(object):
         if replacement.on_enter is not None:
             replacement.on_enter(replacement.name, event)
         self._current = replacement
+
+        # clear _target if we've reached it
+        if (self._target_state is not None and
+                self._target_state == replacement.name):
+            self._target_state = None
+        # set target if there is a new one
+        if (self._target_state is None and
+                self._states[replacement.name]['target'] is not None):
+            self._target_state = self._states[replacement.name]['target']
+
         return (
             self._states[replacement.name]['reactions'].get(event),
             self._states[replacement.name]['terminal'],
@@ -201,7 +221,7 @@ class FSM(object):
         if self._states[self._start_state]['terminal']:
             raise excp.InvalidState("Can not start from a terminal"
                                     " state '%s'" % (self._start_state))
-        self._current = _Jump(self._start_state, None, None)
+        self._current = _Jump(state, None, None)
 
     def run(self, event, initialize=True):
         """Runs the state machine, using reactions only."""
