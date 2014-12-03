@@ -28,6 +28,8 @@ the state leaves the current state unchanged. The node is NOT placed into
 maintenance mode in this case.
 """
 
+from ironic.common import fsm
+
 
 #####################
 # Provisioning states
@@ -100,3 +102,82 @@ POWER_OFF = 'power off'
 
 REBOOT = 'rebooting'
 """ Node is rebooting. """
+
+#####################
+# State machine model
+#####################
+
+M = fsm.FSM()
+
+# Add base state
+M.add_state(NOSTATE)
+
+# From NOSTATE, a deployment may be started
+M.add_state(DEPLOYING)
+M.add_transition(NOSTATE, DEPLOYING, 'active')
+
+# A deployment may fail
+M.add_state(DEPLOYFAIL)
+M.add_transition(DEPLOYING, DEPLOYFAIL, 'fail')
+
+# A failed deployment may be retried
+# ironic/conductor/manager.py:655
+M.add_transition(DEPLOYFAIL, DEPLOYING, 'rebuild')
+
+# A deployment may also wait on external callbacks
+M.add_state(DEPLOYWAIT)
+M.add_transition(DEPLOYING, DEPLOYWAIT, 'wait')
+M.add_transition(DEPLOYWAIT, DEPLOYING, 'resume')
+
+# A deployment may complete
+M.add_state(DEPLOYDONE)
+M.add_transition(DEPLOYING, DEPLOYDONE, 'done')
+
+# A completed deployment may be marked "active"
+M.add_state(ACTIVE)
+M.add_transition(DEPLOYDONE, ACTIVE, 'done')
+
+# An active instance may be re-deployed
+# ironic/conductor/manager.py:655
+M.add_state(REBUILD)
+M.add_transition(ACTIVE, DEPLOYING, 'rebuild')
+
+# An active instance may be deleted
+# ironic/conductor/manager.py:757
+M.add_state(DELETING)
+M.add_transition(ACTIVE, DELETING, 'delete')
+
+# While a deployment is waiting, it may be deleted
+# ironic/conductor/manager.py:757
+M.add_transition(DEPLOYWAIT, DELETING, 'delete')
+
+# A failed deployment may also be deleted
+# ironic/conductor/manager.py:757
+M.add_transition(DEPLOYFAIL, DELETING, 'delete')
+
+# A delete may complete
+M.add_state(DELETED)
+M.add_transition(DELETING, DELETED, 'done')
+
+# A delete, once completed, may be cleared
+M.add_transition(DELETED, NOSTATE, 'done')
+
+# Any state can also transition to error
+M.add_state(ERROR)
+M.add_transition(NOSTATE, ERROR, 'error')
+M.add_transition(DEPLOYING, ERROR, 'error')
+M.add_transition(DEPLOYWAIT, ERROR, 'error')
+M.add_transition(ACTIVE, ERROR, 'error')
+M.add_transition(REBUILD, ERROR, 'error')
+M.add_transition(DELETING, ERROR, 'error')
+
+# An errored instance can be rebuilt
+# ironic/conductor/manager.py:655
+M.add_transition(ERROR, DEPLOYING, 'rebuild')
+# or deleted
+# ironic/conductor/manager.py:757
+M.add_transition(ERROR, DELETING, 'delete')
+
+
+# Freeze the state machine; no more states can be added
+M.freeze()
