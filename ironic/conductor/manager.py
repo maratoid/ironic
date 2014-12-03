@@ -754,10 +754,9 @@ class ConductorManager(periodic_task.PeriodicTasks):
 
         with task_manager.acquire(context, node_id, shared=False) as task:
             node = task.node
-            if node.provision_state not in [states.ACTIVE,
-                                            states.DEPLOYFAIL,
-                                            states.ERROR,
-                                            states.DEPLOYWAIT]:
+            try:
+                task.fsm.process_event('delete')
+            except exception.IronicException:
                 raise exception.InstanceDeployFailure(_(
                     "RPC do_node_tear_down "
                     "not allowed for node %(node)s in state %(state)s")
@@ -767,7 +766,6 @@ class ConductorManager(periodic_task.PeriodicTasks):
                 # NOTE(ghe): Valid power driver values are needed to perform
                 # a tear-down. Deploy info is useful to purge the cache but not
                 # required for this method.
-
                 task.driver.power.validate(task)
             except (exception.InvalidParameterValue,
                     exception.MissingParameterValue) as e:
@@ -782,8 +780,8 @@ class ConductorManager(periodic_task.PeriodicTasks):
             previous_tgt_provision_state = node.target_provision_state
 
             # set target state to expose that work is in progress
-            node.provision_state = states.DELETING
-            node.target_provision_state = states.DELETED
+            node.provision_state = task.fsm.current_state
+            node.target_provision_state = task.fsm.target_state
             node.last_error = None
             node.save()
 
@@ -803,20 +801,18 @@ class ConductorManager(periodic_task.PeriodicTasks):
                 LOG.warning(_LW('Error in tear_down of node %(node)s: '
                                 '%(err)s'),
                             {'node': task.node.uuid, 'err': e})
+                task.fsm.process_event('error')
+                node.provision_state = task.fsm.current_state
+                node.target_provision_state = task.fsm.target_state
                 node.last_error = _("Failed to tear down. Error: %s") % e
-                node.provision_state = states.ERROR
-                node.target_provision_state = states.NOSTATE
         else:
-            # NOTE(deva): Some drivers may return states.DELETING
-            #             eg. if they are waiting for a callback
-            if new_state == states.DELETED:
-                node.target_provision_state = states.NOSTATE
-                node.provision_state = states.NOSTATE
-                LOG.info(_LI('Successfully unprovisioned node %(node)s with '
-                             'instance %(instance)s.'),
-                         {'node': node.uuid, 'instance': node.instance_uuid})
-            else:
-                node.provision_state = new_state
+            # NOTE(deva): When tear_down finishes, the deletion is done
+            task.fsm.process_event('done')
+            node.target_provision_state = task.fsm.current_state
+            node.provision_state = task.fsm.target_state
+            LOG.info(_LI('Successfully unprovisioned node %(node)s with '
+                         'instance %(instance)s.'),
+                     {'node': node.uuid, 'instance': node.instance_uuid})
         finally:
             # NOTE(deva): there is no need to unset conductor_affinity
             # because it is a reference to the most recent conductor which
