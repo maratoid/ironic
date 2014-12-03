@@ -20,8 +20,8 @@ except ImportError:
     from ordereddict import OrderedDict  # noqa
 
 import six
-from taskflow import exceptions as excp
-from taskflow.types import table
+
+from ironic.common import exception as excp
 
 
 class _Jump(object):
@@ -36,10 +36,6 @@ class FrozenMachine(Exception):
     """Exception raised when a frozen machine is modified."""
     def __init__(self):
         super(FrozenMachine, self).__init__("Frozen machine can't be modified")
-
-
-class NotInitialized(excp.TaskFlowException):
-    """Error raised when an action is attempted on a not inited machine."""
 
 
 class FSM(object):
@@ -62,7 +58,7 @@ class FSM(object):
     or run_iter() completely and use the process_event() method explicitly and
     trigger the events via some *external* functionality.
     """
-    def __init__(self, start_state):
+    def __init__(self, start_state=None):
         self._transitions = {}
         self._states = OrderedDict()
         self._start_state = start_state
@@ -163,8 +159,8 @@ class FSM(object):
         """Trigger a state change in response to the provided event."""
         current = self._current
         if current is None:
-            raise NotInitialized("Can only process events after"
-                                 " being initialized (not before)")
+            raise excp.InvalidState("Can only process events after"
+                                    " being initialized (not before)")
         if self._states[current.name]['terminal']:
             raise excp.InvalidState("Can not transition from terminal"
                                     " state '%s' on event '%s'"
@@ -184,9 +180,22 @@ class FSM(object):
             self._states[replacement.name]['terminal'],
         )
 
-    def initialize(self):
+    def test_event(self, event):
+        """Check whether the event can be processed, but don't do it."""
+        current = self._current
+        if current is None:
+            return False
+        if self._states[current.name]['terminal']:
+            return False
+        if event not in self._transitions[current.name]:
+            return False
+        return True
+
+    def initialize(self, state=None):
         """Sets up the state machine (sets current state to start state...)."""
-        if self._start_state not in self._states:
+        if state is None:
+            state = self._start_state
+        if state not in self._states:
             raise excp.NotFound("Can not start from a undefined"
                                 " state '%s'" % (self._start_state))
         if self._states[self._start_state]['terminal']:
@@ -271,72 +280,3 @@ class FSM(object):
         for state in six.iterkeys(self._states):
             for event, target in six.iteritems(self._transitions[state]):
                 yield (state, event, target.name)
-
-    def pformat(self, sort=True):
-        """Pretty formats the state + transition table into a string.
-
-        NOTE(harlowja): the sort parameter can be provided to sort the states
-        and transitions by sort order; with it being provided as false the rows
-        will be iterated in addition order instead.
-
-        **Example**::
-
-            >>> from taskflow.types import fsm
-            >>> f = fsm.FSM("sits")
-            >>> f.add_state("sits")
-            >>> f.add_state("barks")
-            >>> f.add_state("wags tail")
-            >>> f.add_transition("sits", "barks", "squirrel!")
-            >>> f.add_transition("barks", "wags tail", "gets petted")
-            >>> f.add_transition("wags tail", "sits", "gets petted")
-            >>> f.add_transition("wags tail", "barks", "squirrel!")
-            >>> print(f.pformat())
-            +-----------+-------------+-----------+----------+---------+
-                Start   |    Event    |    End    | On Enter | On Exit
-            +-----------+-------------+-----------+----------+---------+
-                barks   | gets petted | wags tail |          |
-               sits[^]  |  squirrel!  |   barks   |          |
-              wags tail | gets petted |   sits    |          |
-              wags tail |  squirrel!  |   barks   |          |
-            +-----------+-------------+-----------+----------+---------+
-        """
-        def orderedkeys(data):
-            if sort:
-                return sorted(six.iterkeys(data))
-            return list(six.iterkeys(data))
-        tbl = table.PleasantTable(["Start", "Event", "End",
-                                   "On Enter", "On Exit"])
-        for state in orderedkeys(self._states):
-            prefix_markings = []
-            if self.current_state == state:
-                prefix_markings.append("@")
-            postfix_markings = []
-            if self.start_state == state:
-                postfix_markings.append("^")
-            if self._states[state]['terminal']:
-                postfix_markings.append("$")
-            pretty_state = "%s%s" % ("".join(prefix_markings), state)
-            if postfix_markings:
-                pretty_state += "[%s]" % "".join(postfix_markings)
-            if self._transitions[state]:
-                for event in orderedkeys(self._transitions[state]):
-                    target = self._transitions[state][event]
-                    row = [pretty_state, event, target.name]
-                    if target.on_enter is not None:
-                        try:
-                            row.append(target.on_enter.__name__)
-                        except AttributeError:
-                            row.append(target.on_enter)
-                    else:
-                        row.append('')
-                    if target.on_exit is not None:
-                        try:
-                            row.append(target.on_exit.__name__)
-                        except AttributeError:
-                            row.append(target.on_exit)
-                    else:
-                        row.append('')
-                    tbl.add_row(row)
-            else:
-                tbl.add_row([pretty_state, "", "", "", ""])
-        return tbl.pformat()
