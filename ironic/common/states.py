@@ -130,7 +130,7 @@ machine.add_state(DELETING, target=DELETED)
 
 
 # From NOSTATE, a deployment may be started
-machine.add_transition(NOSTATE, DEPLOYING, 'active')
+machine.add_transition(NOSTATE, DEPLOYING, 'deploy')
 
 # A deployment may fail
 machine.add_transition(DEPLOYING, DEPLOYFAIL, 'fail')
