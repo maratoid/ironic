@@ -686,11 +686,12 @@ class ConductorManager(periodic_task.PeriodicTasks):
                     "'%(state)s'. ") % {'what': event,
                                         'node': node.uuid,
                                         'state': node.provision_state})
-
-            task.set_spawn_error_hook(self._provisioning_error_handler,
-                                      node, previous_prov_state,
-                                      previous_tgt_provision_state)
-            task.spawn_after(self._spawn_worker, self._do_node_deploy, task)
+            else:
+                task.set_spawn_error_hook(self._provisioning_error_handler,
+                                          node, previous_prov_state,
+                                          previous_tgt_provision_state)
+                task.spawn_after(self._spawn_worker,
+                                 self._do_node_deploy, task)
 
     def _do_node_deploy(self, task):
         """Prepare the environment and deploy a node."""
@@ -705,20 +706,24 @@ class ConductorManager(periodic_task.PeriodicTasks):
         except Exception as e:
             # NOTE(deva): there is no need to clear conductor_affinity
             with excutils.save_and_reraise_exception():
+                task.process_event('fail')
                 LOG.warning(_LW('Error in deploy of node %(node)s: %(err)s'),
                             {'node': task.node.uuid, 'err': e})
-                task.process_event('fail')
                 node.last_error = _("Failed to deploy. Error: %s") % e
         else:
             # NOTE(deva): Some drivers may return states.DEPLOYWAIT
             #             eg. if they are waiting for a callback
             if new_state == states.DEPLOYDONE:
+                task.process_event('done')
                 LOG.info(_LI('Successfully deployed node %(node)s with '
                              'instance %(instance)s.'),
                          {'node': node.uuid, 'instance': node.instance_uuid})
-                task.process_event('done')
             elif new_state == states.DEPLOYWAIT:
                 task.provess_event('wait')
+            else:
+                LOG.error(_LE('Unexpected state %(state)s returned while '
+                              'deploying node %(node)s.'),
+                              {'state': new_state, 'node': node.uuid})
         finally:
             node.save()
 
@@ -770,11 +775,12 @@ class ConductorManager(periodic_task.PeriodicTasks):
                     "RPC do_node_tear_down "
                     "not allowed for node %(node)s in state %(state)s")
                     % {'node': node_id, 'state': node.provision_state})
-
-            task.set_spawn_error_hook(self._provisioning_error_handler,
-                                      node, previous_prov_state,
-                                      previous_tgt_provision_state)
-            task.spawn_after(self._spawn_worker, self._do_node_tear_down, task)
+            else:
+                task.set_spawn_error_hook(self._provisioning_error_handler,
+                                          node, previous_prov_state,
+                                          previous_tgt_provision_state)
+                task.spawn_after(self._spawn_worker,
+                                self._do_node_tear_down, task)
 
     def _do_node_tear_down(self, task):
         """Internal RPC method to tear down an existing node deployment."""
@@ -784,10 +790,10 @@ class ConductorManager(periodic_task.PeriodicTasks):
             task.driver.deploy.tear_down(task)
         except Exception as e:
             with excutils.save_and_reraise_exception():
+                task.process_event('error')
                 LOG.warning(_LW('Error in tear_down of node %(node)s: '
                                 '%(err)s'),
                             {'node': task.node.uuid, 'err': e})
-                task.process_event('error')
                 task.node.last_error = _("Failed to tear down. Error: %s") % e
         else:
             # NOTE(deva): When tear_down finishes, the deletion is done
