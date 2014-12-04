@@ -176,9 +176,9 @@ class FSM(object):
                                     " state '%s' on event '%s'"
                                     % (current.name, event))
         if event not in self._transitions[current.name]:
-            raise excp.NotFound("Can not transition from state '%s' on"
-                                " event '%s' (no defined transition)"
-                                % (current.name, event))
+            raise excp.InvalidState("Can not transition from state '%s' on"
+                                    " event '%s' (no defined transition)"
+                                    % (current.name, event))
         replacement = self._transitions[current.name][event]
         if current.on_exit is not None:
             current.on_exit(current.name, event)

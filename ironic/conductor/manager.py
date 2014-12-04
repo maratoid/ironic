@@ -775,7 +775,7 @@ class ConductorManager(periodic_task.PeriodicTasks):
                 task.process_event('delete')
                 node.last_error = None
                 node.save()
-            except exception.IronicException:
+            except exception.InvalidState:
                 raise exception.InstanceDeployFailure(_(
                     "RPC do_node_tear_down "
                     "not allowed for node %(node)s in state %(state)s")
