@@ -256,6 +256,12 @@ class TaskManager(object):
         """Thread.link() callback to release resources."""
         self.release_resources()
 
+    def process_event(self, event):
+        """Process an event by advancing the state machine."""
+        self.fsm.process_event(event)
+        self.node.provision_state = self.fsm.current_state
+        self.node.target_provision_state = self.fsm.target_state
+
     def __enter__(self):
         return self
 
