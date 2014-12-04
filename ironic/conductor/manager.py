@@ -247,6 +247,32 @@ class ConductorManager(periodic_task.PeriodicTasks):
         """Periodic tasks are run at pre-specified interval."""
         return self.run_periodic_tasks(context, raise_on_error=raise_on_error)
 
+    @lockutils.synchronized(WORKER_SPAWN_lOCK, 'ironic-')
+    def _spawn_worker(self, func, *args, **kwargs):
+
+        """Create a greenthread to run func(*args, **kwargs).
+
+        Spawns a greenthread if there are free slots in pool, otherwise raises
+        exception. Execution control returns immediately to the caller.
+
+        :returns: GreenThread object.
+        :raises: NoFreeConductorWorker if worker pool is currently full.
+
+        """
+        if self._worker_pool.free():
+            return self._worker_pool.spawn(func, *args, **kwargs)
+        else:
+            raise exception.NoFreeConductorWorker()
+
+    def _conductor_service_record_keepalive(self):
+        while not self._keepalive_evt.is_set():
+            try:
+                self.dbapi.touch_conductor(self.host)
+            except db_exception.DBConnectionError:
+                LOG.warning(_LW('Conductor could not connect to database '
+                                'while heartbeating.'))
+            self._keepalive_evt.wait(CONF.conductor.heartbeat_interval)
+
     @messaging.expected_exceptions(exception.InvalidParameterValue,
                                    exception.MissingParameterValue,
                                    exception.NodeLocked,
@@ -296,27 +322,6 @@ class ConductorManager(periodic_task.PeriodicTasks):
 
             return node_obj
 
-    def _power_state_error_handler(self, e, node, power_state):
-        """Set the node's power states if error occurs.
-
-        This hook gets called upon an execption being raised when spawning
-        the worker thread to change the power state of a node.
-
-        :param e: the exception object that was raised.
-        :param node: an Ironic node object.
-        :param power_state: the power state to set on the node.
-
-        """
-        if isinstance(e, exception.NoFreeConductorWorker):
-            node.power_state = power_state
-            node.target_power_state = states.NOSTATE
-            node.last_error = (_("No free conductor workers available"))
-            node.save()
-            LOG.warning(_LW("No free conductor workers available to perform "
-                            "an action on node %(node)s, setting node's "
-                            "power state back to %(power_state)s."),
-                            {'node': node.uuid, 'power_state': power_state})
-
     @messaging.expected_exceptions(exception.InvalidParameterValue,
                                    exception.MissingParameterValue,
                                    exception.NoFreeConductorWorker,
@@ -352,7 +357,7 @@ class ConductorManager(periodic_task.PeriodicTasks):
                 task.node.target_power_state = new_state
             task.node.last_error = None
             task.node.save()
-            task.set_spawn_error_hook(self._power_state_error_handler,
+            task.set_spawn_error_hook(_power_state_error_handler,
                                       task.node, task.node.power_state)
             task.spawn_after(self._spawn_worker, utils.node_power_action,
                              task, new_state)
@@ -541,13 +546,6 @@ class ConductorManager(periodic_task.PeriodicTasks):
 
         return (ret, is_async)
 
-    def _get_vendor_passthru_metadata(self, route_dict):
-        d = {}
-        for method, metadata in route_dict.iteritems():
-            # 'func' is the vendor method reference, ignore it
-            d[method] = {k: metadata[k] for k in metadata if k != 'func'}
-        return d
-
     @messaging.expected_exceptions(exception.UnsupportedDriverExtension)
     def get_node_vendor_passthru_methods(self, context, node_id):
         """Retrieve information about vendor methods of the given node.
@@ -565,8 +563,8 @@ class ConductorManager(periodic_task.PeriodicTasks):
                     driver=task.node.driver,
                     extension='vendor interface')
 
-            return self._get_vendor_passthru_metadata(
-                       task.driver.vendor.vendor_routes)
+            return _get_vendor_passthru_metadata(
+                    task.driver.vendor.vendor_routes)
 
     @messaging.expected_exceptions(exception.UnsupportedDriverExtension,
                                    exception.DriverNotFound)
@@ -588,36 +586,7 @@ class ConductorManager(periodic_task.PeriodicTasks):
                 driver=driver_name,
                 extension='vendor interface')
 
-        return self._get_vendor_passthru_metadata(driver.vendor.driver_routes)
-
-    def _provisioning_error_handler(self, e, node, provision_state,
-                                    target_provision_state):
-        """Set the node's provisioning states if error occurs.
-
-        This hook gets called upon an exception being raised when spawning
-        the worker to do the deployment or tear down of a node.
-
-        :param e: the exception object that was raised.
-        :param node: an Ironic node object.
-        :param provision_state: the provision state to be set on
-            the node.
-        :param target_provision_state: the target provision state to be
-            set on the node.
-
-        """
-        if isinstance(e, exception.NoFreeConductorWorker):
-            # NOTE(deva): there is no need to clear conductor_affinity
-            #             because it isn't updated on a failed deploy
-            node.provision_state = provision_state
-            node.target_provision_state = target_provision_state
-            node.last_error = (_("No free conductor workers available"))
-            node.save()
-            LOG.warning(_LW("No free conductor workers available to perform "
-                            "an action on node %(node)s, setting node's "
-                            "provision_state back to %(prov_state)s and "
-                            "target_provision_state to %(tgt_prov_state)s."),
-                        {'node': node.uuid, 'prov_state': provision_state,
-                         'tgt_prov_state': target_provision_state})
+        return _get_vendor_passthru_metadata(driver.vendor.driver_routes)
 
     @messaging.expected_exceptions(exception.NoFreeConductorWorker,
                                    exception.NodeLocked,
@@ -687,45 +656,11 @@ class ConductorManager(periodic_task.PeriodicTasks):
                                         'node': node.uuid,
                                         'state': node.provision_state})
             else:
-                task.set_spawn_error_hook(self._provisioning_error_handler,
+                task.set_spawn_error_hook(_provisioning_error_handler,
                                           node, previous_prov_state,
                                           previous_tgt_provision_state)
                 task.spawn_after(self._spawn_worker,
-                                 self._do_node_deploy, task)
-
-    def _do_node_deploy(self, task):
-        """Prepare the environment and deploy a node."""
-        node = task.node
-        try:
-            task.driver.deploy.prepare(task)
-            new_state = task.driver.deploy.deploy(task)
-
-            # Update conductor_affinity to reference this conductor's ID
-            # since there may be local persistent state
-            node.conductor_affinity = self.conductor.id
-        except Exception as e:
-            # NOTE(deva): there is no need to clear conductor_affinity
-            with excutils.save_and_reraise_exception():
-                task.process_event('fail')
-                LOG.warning(_LW('Error in deploy of node %(node)s: %(err)s'),
-                            {'node': task.node.uuid, 'err': e})
-                node.last_error = _("Failed to deploy. Error: %s") % e
-        else:
-            # NOTE(deva): Some drivers may return states.DEPLOYWAIT
-            #             eg. if they are waiting for a callback
-            if new_state == states.DEPLOYDONE:
-                task.process_event('done')
-                LOG.info(_LI('Successfully deployed node %(node)s with '
-                             'instance %(instance)s.'),
-                         {'node': node.uuid, 'instance': node.instance_uuid})
-            elif new_state == states.DEPLOYWAIT:
-                task.provess_event('wait')
-            else:
-                LOG.error(_LE('Unexpected state %(state)s returned while '
-                              'deploying node %(node)s.'),
-                              {'state': new_state, 'node': node.uuid})
-        finally:
-            node.save()
+                                 _do_node_deploy, task, self.conductor.id)
 
     @messaging.expected_exceptions(exception.NoFreeConductorWorker,
                                    exception.NodeLocked,
@@ -776,147 +711,11 @@ class ConductorManager(periodic_task.PeriodicTasks):
                     "not allowed for node %(node)s in state %(state)s")
                     % {'node': node_id, 'state': node.provision_state})
             else:
-                task.set_spawn_error_hook(self._provisioning_error_handler,
+                task.set_spawn_error_hook(_provisioning_error_handler,
                                           node, previous_prov_state,
                                           previous_tgt_provision_state)
                 task.spawn_after(self._spawn_worker,
-                                self._do_node_tear_down, task)
-
-    def _do_node_tear_down(self, task):
-        """Internal RPC method to tear down an existing node deployment."""
-        node = task.node
-        try:
-            task.driver.deploy.clean_up(task)
-            task.driver.deploy.tear_down(task)
-        except Exception as e:
-            with excutils.save_and_reraise_exception():
-                task.process_event('error')
-                LOG.warning(_LW('Error in tear_down of node %(node)s: '
-                                '%(err)s'),
-                            {'node': task.node.uuid, 'err': e})
-                task.node.last_error = _("Failed to tear down. Error: %s") % e
-        else:
-            # NOTE(deva): When tear_down finishes, the deletion is done
-            task.process_event('done')
-            LOG.info(_LI('Successfully unprovisioned node %(node)s with '
-                         'instance %(instance)s.'),
-                     {'node': node.uuid, 'instance': node.instance_uuid})
-        finally:
-            # NOTE(deva): there is no need to unset conductor_affinity
-            # because it is a reference to the most recent conductor which
-            # deployed a node, and does not limit any future actions.
-            # But we do need to clear the instance_info
-            node.instance_info = {}
-            node.save()
-
-    def _conductor_service_record_keepalive(self):
-        while not self._keepalive_evt.is_set():
-            try:
-                self.dbapi.touch_conductor(self.host)
-            except db_exception.DBConnectionError:
-                LOG.warning(_LW('Conductor could not connect to database '
-                                'while heartbeating.'))
-            self._keepalive_evt.wait(CONF.conductor.heartbeat_interval)
-
-    def _handle_sync_power_state_max_retries_exceeded(self, task,
-                                                      actual_power_state):
-        node = task.node
-        msg = (_("During sync_power_state, max retries exceeded "
-                  "for node %(node)s, node state %(actual)s "
-                  "does not match expected state '%(state)s'. "
-                  "Updating DB state to '%(actual)s' "
-                  "Switching node to maintenance mode.") %
-                  {'node': node.uuid, 'actual': actual_power_state,
-                   'state': node.power_state})
-        node.power_state = actual_power_state
-        node.last_error = msg
-        node.maintenance = True
-        node.maintenance_reason = msg
-        node.save()
-        LOG.error(msg)
-
-    def _do_sync_power_state(self, task):
-        node = task.node
-        power_state = None
-
-        # Power driver info should be set properly for new node, otherwise
-        # prevent node from switching to maintenance mode.
-        if node.power_state is None:
-            try:
-                task.driver.power.validate(task)
-            except (exception.InvalidParameterValue,
-                    exception.MissingParameterValue):
-                return
-
-        try:
-            power_state = task.driver.power.get_power_state(task)
-            if power_state == states.ERROR:
-                raise exception.PowerStateFailure(_("Driver returns ERROR"
-                                                    " state."))
-        except Exception as e:
-            LOG.warning(_LW("During sync_power_state, could not get power "
-                            "state for node %(node)s. Error: %(err)s."),
-                            {'node': node.uuid, 'err': e})
-            self.power_state_sync_count[node.uuid] += 1
-
-            if (self.power_state_sync_count[node.uuid] >=
-                CONF.conductor.power_state_sync_max_retries):
-                self._handle_sync_power_state_max_retries_exceeded(task,
-                                                                   power_state)
-            return
-
-        if node.power_state is None:
-            LOG.info(_LI("During sync_power_state, node %(node)s has no "
-                         "previous known state. Recording current state "
-                         "'%(state)s'."),
-                         {'node': node.uuid, 'state': power_state})
-            node.power_state = power_state
-            node.save()
-
-        if power_state == node.power_state:
-            if node.uuid in self.power_state_sync_count:
-                del self.power_state_sync_count[node.uuid]
-            return
-
-        if not CONF.conductor.force_power_state_during_sync:
-            LOG.warning(_LW("During sync_power_state, node %(node)s state "
-                            "does not match expected state '%(state)s'. "
-                            "Updating recorded state to '%(actual)s'."),
-                            {'node': node.uuid, 'actual': power_state,
-                             'state': node.power_state})
-            node.power_state = power_state
-            node.save()
-            return
-
-        if (self.power_state_sync_count[node.uuid] >=
-            CONF.conductor.power_state_sync_max_retries):
-            self._handle_sync_power_state_max_retries_exceeded(task,
-                                                               power_state)
-            return
-
-        # Force actual power_state of node equal to DB power_state of node
-        LOG.warning(_LW("During sync_power_state, node %(node)s state "
-                        "'%(actual)s' does not match expected state. "
-                        "Changing hardware state to '%(state)s'."),
-                        {'node': node.uuid, 'actual': power_state,
-                         'state': node.power_state})
-        try:
-            # node_power_action will update the node record
-            # so don't do that again here.
-            utils.node_power_action(task, node.power_state)
-        except Exception as e:
-            LOG.error(_LE("Failed to change power state of node %(node)s "
-                          "to '%(state)s'."), {'node': node.uuid,
-                                               'state': node.power_state})
-            attempts_left = (CONF.conductor.power_state_sync_max_retries -
-                             self.power_state_sync_count[node.uuid]) - 1
-            LOG.warning(_LW("%(left)s attempts remaining to "
-                            "sync_power_state for node %(node)s"),
-                            {'left': attempts_left,
-                             'node': node.uuid})
-        finally:
-            # Update power state sync count for current node
-            self.power_state_sync_count[node.uuid] += 1
+                                _do_node_tear_down, task)
 
     @periodic_task.periodic_task(
             spacing=CONF.conductor.sync_power_state_interval)
@@ -958,14 +757,22 @@ class ConductorManager(periodic_task.PeriodicTasks):
             try:
                 if not self._mapped_to_this_conductor(node_uuid, driver):
                     continue
+                # NOTE(deva): This section is redundant, but unit tests want it
                 node = objects.Node.get_by_id(context, node_id)
-                if (node.provision_state == states.DEPLOYWAIT or
-                        node.maintenance or node.reservation is not None):
+                if ((node.provision_state == states.DEPLOYWAIT) or
+                        node.maintenance or node.reservation):
                     continue
+
                 with task_manager.acquire(context, node_id) as task:
-                    if (task.node.provision_state != states.DEPLOYWAIT and
-                            not task.node.maintenance):
-                        self._do_sync_power_state(task)
+                    if ((task.node.provision_state == states.DEPLOYWAIT) or
+                            task.node.maintenance):
+                        continue
+                    result = _do_sync_power_state(
+                            task, self.power_state_sync_count[node_uuid])
+                    if result:
+                        self.power_state_sync_count[node_uuid] = result
+                    else:
+                        del self.power_state_sync_count[node_uuid]
             except exception.NodeNotFound:
                 LOG.info(_LI("During sync_power_state, node %(node)s was not "
                              "found and presumed deleted by another process."),
@@ -1137,23 +944,6 @@ class ConductorManager(periodic_task.PeriodicTasks):
                 if reason is not None:
                     ret_dict[iface_name]['reason'] = reason
         return ret_dict
-
-    @lockutils.synchronized(WORKER_SPAWN_lOCK, 'ironic-')
-    def _spawn_worker(self, func, *args, **kwargs):
-
-        """Create a greenthread to run func(*args, **kwargs).
-
-        Spawns a greenthread if there are free slots in pool, otherwise raises
-        exception. Execution control returns immediately to the caller.
-
-        :returns: GreenThread object.
-        :raises: NoFreeConductorWorker if worker pool is currently full.
-
-        """
-        if self._worker_pool.free():
-            return self._worker_pool.spawn(func, *args, **kwargs)
-        else:
-            raise exception.NoFreeConductorWorker()
 
     @messaging.expected_exceptions(exception.NodeLocked,
                                    exception.NodeAssociated,
@@ -1498,3 +1288,222 @@ class ConductorManager(periodic_task.PeriodicTasks):
                 raise exception.UnsupportedDriverExtension(
                             driver=task.node.driver, extension='management')
             return task.driver.management.get_supported_boot_devices()
+
+
+def _get_vendor_passthru_metadata(route_dict):
+    d = {}
+    for method, metadata in route_dict.iteritems():
+        # 'func' is the vendor method reference, ignore it
+        d[method] = {k: metadata[k] for k in metadata if k != 'func'}
+    return d
+
+
+def _power_state_error_handler(e, node, power_state):
+    """Set the node's power states if error occurs.
+
+    This hook gets called upon an execption being raised when spawning
+    the worker thread to change the power state of a node.
+
+    :param e: the exception object that was raised.
+    :param node: an Ironic node object.
+    :param power_state: the power state to set on the node.
+
+    """
+    if isinstance(e, exception.NoFreeConductorWorker):
+        node.power_state = power_state
+        node.target_power_state = states.NOSTATE
+        node.last_error = (_("No free conductor workers available"))
+        node.save()
+        LOG.warning(_LW("No free conductor workers available to perform "
+                        "an action on node %(node)s, setting node's "
+                        "power state back to %(power_state)s."),
+                        {'node': node.uuid, 'power_state': power_state})
+
+
+def _provisioning_error_handler(e, node, provision_state,
+                                target_provision_state):
+    """Set the node's provisioning states if error occurs.
+
+    This hook gets called upon an exception being raised when spawning
+    the worker to do the deployment or tear down of a node.
+
+    :param e: the exception object that was raised.
+    :param node: an Ironic node object.
+    :param provision_state: the provision state to be set on
+        the node.
+    :param target_provision_state: the target provision state to be
+        set on the node.
+
+    """
+    if isinstance(e, exception.NoFreeConductorWorker):
+        # NOTE(deva): there is no need to clear conductor_affinity
+        #             because it isn't updated on a failed deploy
+        node.provision_state = provision_state
+        node.target_provision_state = target_provision_state
+        node.last_error = (_("No free conductor workers available"))
+        node.save()
+        LOG.warning(_LW("No free conductor workers available to perform "
+                        "an action on node %(node)s, setting node's "
+                        "provision_state back to %(prov_state)s and "
+                        "target_provision_state to %(tgt_prov_state)s."),
+                    {'node': node.uuid, 'prov_state': provision_state,
+                     'tgt_prov_state': target_provision_state})
+
+
+def _do_node_deploy(task, conductor_id):
+    """Prepare the environment and deploy a node."""
+    node = task.node
+    try:
+        task.driver.deploy.prepare(task)
+        new_state = task.driver.deploy.deploy(task)
+    except Exception as e:
+        # NOTE(deva): there is no need to clear conductor_affinity
+        with excutils.save_and_reraise_exception():
+            task.process_event('fail')
+            LOG.warning(_LW('Error in deploy of node %(node)s: %(err)s'),
+                        {'node': task.node.uuid, 'err': e})
+            node.last_error = _("Failed to deploy. Error: %s") % e
+    else:
+        # Update conductor_affinity to reference this conductor's ID
+        # since there may be local persistent state
+        node.conductor_affinity = conductor_id
+
+        # NOTE(deva): Some drivers may return states.DEPLOYWAIT
+        #             eg. if they are waiting for a callback
+        if new_state == states.DEPLOYDONE:
+            task.process_event('done')
+            LOG.info(_LI('Successfully deployed node %(node)s with '
+                         'instance %(instance)s.'),
+                     {'node': node.uuid, 'instance': node.instance_uuid})
+        elif new_state == states.DEPLOYWAIT:
+            task.process_event('wait')
+        else:
+            LOG.error(_LE('Unexpected state %(state)s returned while '
+                          'deploying node %(node)s.'),
+                          {'state': new_state, 'node': node.uuid})
+    finally:
+        node.save()
+
+
+def _do_node_tear_down(task):
+    """Internal RPC method to tear down an existing node deployment."""
+    node = task.node
+    try:
+        task.driver.deploy.clean_up(task)
+        task.driver.deploy.tear_down(task)
+    except Exception as e:
+        with excutils.save_and_reraise_exception():
+            task.process_event('error')
+            LOG.warning(_LW('Error in tear_down of node %(node)s: '
+                            '%(err)s'),
+                        {'node': task.node.uuid, 'err': e})
+            task.node.last_error = _("Failed to tear down. Error: %s") % e
+    else:
+        # NOTE(deva): When tear_down finishes, the deletion is done
+        task.process_event('done')
+        LOG.info(_LI('Successfully unprovisioned node %(node)s with '
+                     'instance %(instance)s.'),
+                 {'node': node.uuid, 'instance': node.instance_uuid})
+    finally:
+        # NOTE(deva): there is no need to unset conductor_affinity
+        # because it is a reference to the most recent conductor which
+        # deployed a node, and does not limit any future actions.
+        # But we do need to clear the instance_info
+        node.instance_info = {}
+        node.save()
+
+
+def _handle_sync_power_state_max_retries_exceeded(task,
+                                                  actual_power_state):
+    node = task.node
+    msg = (_("During sync_power_state, max retries exceeded "
+              "for node %(node)s, node state %(actual)s "
+              "does not match expected state '%(state)s'. "
+              "Updating DB state to '%(actual)s' "
+              "Switching node to maintenance mode.") %
+              {'node': node.uuid, 'actual': actual_power_state,
+               'state': node.power_state})
+    node.power_state = actual_power_state
+    node.last_error = msg
+    node.maintenance = True
+    node.maintenance_reason = msg
+    node.save()
+    LOG.error(msg)
+
+
+def _do_sync_power_state(task, count):
+    """Sync the power state and increment the counter upon failure."""
+    node = task.node
+    power_state = None
+
+    # Power driver info should be set properly for new node, otherwise
+    # prevent node from switching to maintenance mode.
+    if node.power_state is None:
+        try:
+            task.driver.power.validate(task)
+        except (exception.InvalidParameterValue,
+                exception.MissingParameterValue):
+            return
+
+    try:
+        count += 1
+        power_state = task.driver.power.get_power_state(task)
+        if power_state == states.ERROR:
+            raise exception.PowerStateFailure(_("Driver returns ERROR"
+                                                " state."))
+        if power_state == node.power_state:
+            return
+
+    except Exception as e:
+        LOG.warning(_LW("During sync_power_state, could not get power "
+                        "state for node %(node)s. Error: %(err)s."),
+                        {'node': node.uuid, 'err': e})
+        if (count >= CONF.conductor.power_state_sync_max_retries):
+            _handle_sync_power_state_max_retries_exceeded(task, power_state)
+            return count
+        else:
+            return count
+
+    if node.power_state is None:
+        LOG.info(_LI("During sync_power_state, node %(node)s has no "
+                     "previous known state. Recording current state "
+                     "'%(state)s'."),
+                     {'node': node.uuid, 'state': power_state})
+        node.power_state = power_state
+        node.save()
+        return
+
+    if not CONF.conductor.force_power_state_during_sync:
+        LOG.warning(_LW("During sync_power_state, node %(node)s state "
+                        "does not match expected state '%(state)s'. "
+                        "Updating recorded state to '%(actual)s'."),
+                        {'node': node.uuid, 'actual': power_state,
+                         'state': node.power_state})
+        node.power_state = power_state
+        node.save()
+        return
+
+    if count > CONF.conductor.power_state_sync_max_retries:
+        _handle_sync_power_state_max_retries_exceeded(task, power_state)
+        return count
+
+    # Force actual power_state of node equal to DB power_state of node
+    LOG.warning(_LW("During sync_power_state, node %(node)s state "
+                    "'%(actual)s' does not match expected state. "
+                    "Changing hardware state to '%(state)s'."),
+                    {'node': node.uuid, 'actual': power_state,
+                     'state': node.power_state})
+    try:
+        # node_power_action will update the node record
+        # so don't do that again here.
+        utils.node_power_action(task, node.power_state)
+    except Exception as e:
+        LOG.error(_LE("Failed to change power state of node %(node)s "
+                      "to '%(state)s'."), {'node': node.uuid,
+                                           'state': node.power_state})
+        attempts_left = CONF.conductor.power_state_sync_max_retries - count
+        LOG.warning(_LW("%(left)s attempts remaining to "
+                        "sync_power_state for node %(node)s"),
+                        {'left': attempts_left,
+                         'node': node.uuid})
+    return count
