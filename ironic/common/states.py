@@ -144,10 +144,7 @@ machine.add_transition(DEPLOYING, DEPLOYWAIT, 'wait')
 machine.add_transition(DEPLOYWAIT, DEPLOYING, 'resume')
 
 # A deployment may complete
-machine.add_transition(DEPLOYING, DEPLOYDONE, 'done')
-
-# A completed deployment may be marked "active"
-machine.add_transition(DEPLOYDONE, ACTIVE, 'next-state')
+machine.add_transition(DEPLOYING, ACTIVE, 'done')
 
 # An active instance may be re-deployed
 # ironic/conductor/manager.py:655
