@@ -181,7 +181,7 @@ class TaskManager(object):
         self.node = None
         self.shared = shared
 
-        self.fsm = states.M.copy()
+        self.fsm = states.machine.copy()
 
         # NodeLocked exceptions can be annoying. Let's try to alleviate
         # some of that pain by retrying our lock attempts. The retrying
