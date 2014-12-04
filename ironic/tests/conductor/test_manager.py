@@ -916,7 +916,7 @@ class DoNodeDeployTearDownTestCase(_ServiceSetUpMixin,
         # test when driver.deploy.deploy raises an exception
         mock_deploy.side_effect = exception.InstanceDeployFailure('test')
         node = obj_utils.create_test_node(self.context, driver='fake',
-                                          provision_state=states.NOSTATE)
+                                          provision_state=states.DEPLOYING)
         task = task_manager.TaskManager(self.context, node.uuid)
 
         self.assertRaises(exception.InstanceDeployFailure,
@@ -933,7 +933,7 @@ class DoNodeDeployTearDownTestCase(_ServiceSetUpMixin,
         # test when driver.deploy.deploy returns DEPLOYDONE
         mock_deploy.return_value = states.DEPLOYDONE
         node = obj_utils.create_test_node(self.context, driver='fake',
-                                          provision_state=states.NOSTATE)
+                                          provision_state=states.DEPLOYING)
         task = task_manager.TaskManager(self.context, node.uuid)
 
         self.service._do_node_deploy(task)

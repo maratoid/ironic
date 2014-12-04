@@ -652,28 +652,9 @@ class ConductorManager(periodic_task.PeriodicTasks):
         # want to add retries or extra synchronization here.
         with task_manager.acquire(context, node_id, shared=False) as task:
             node = task.node
-            # Only rebuild a node in ACTIVE, ERROR, or DEPLOYFAIL state
-            rebuild_states = [states.ACTIVE,
-                              states.ERROR,
-                              states.DEPLOYFAIL]
-            if rebuild and (node.provision_state not in rebuild_states):
-                valid_states_string = ', '.join(rebuild_states)
-                raise exception.InstanceDeployFailure(_(
-                    "RPC do_node_deploy called to rebuild %(node)s, but "
-                    "provision state is %(curstate)s. State must be one "
-                    "of : %(states)s.") % {'node': node.uuid,
-                     'curstate': node.provision_state,
-                     'states': valid_states_string})
-            elif node.provision_state != states.NOSTATE and not rebuild:
-                raise exception.InstanceDeployFailure(_(
-                    "RPC do_node_deploy called for %(node)s, but provision "
-                    "state is already %(state)s.") %
-                    {'node': node.uuid, 'state': node.provision_state})
-
             if node.maintenance:
                 raise exception.NodeInMaintenance(op=_('provisioning'),
                                                   node=node.uuid)
-
             try:
                 task.driver.power.validate(task)
                 task.driver.deploy.validate(task)
@@ -683,17 +664,28 @@ class ConductorManager(periodic_task.PeriodicTasks):
                     "RPC do_node_deploy failed to validate deploy or "
                     "power info. Error: %(msg)s") % {'msg': e})
 
+            if rebuild:
+                event = 'rebuild'
+            else:
+                event = 'deploy'
+
             # Save the previous states so we can rollback the node to a
             # consistent state in case there's no free workers to do the
             # deploy work
             previous_prov_state = node.provision_state
             previous_tgt_provision_state = node.target_provision_state
 
-            # Set target state to expose that work is in progress
-            node.provision_state = states.DEPLOYING
-            node.target_provision_state = states.DEPLOYDONE
-            node.last_error = None
-            node.save()
+            try:
+                task.process_event(event)
+                node.last_error = None
+                node.save()
+            except exception.InvalidState:
+                raise exception.InstanceDeployFailure(_(
+                    "Request received to %(what)s %(node)s, but "
+                    "this is not possible in the current state of "
+                    "'%(state)s'. ") % {'what': event,
+                                        'node': node.uuid,
+                                        'state': node.provision_state})
 
             task.set_spawn_error_hook(self._provisioning_error_handler,
                                       node, previous_prov_state,
@@ -711,24 +703,22 @@ class ConductorManager(periodic_task.PeriodicTasks):
             # since there may be local persistent state
             node.conductor_affinity = self.conductor.id
         except Exception as e:
+            # NOTE(deva): there is no need to clear conductor_affinity
             with excutils.save_and_reraise_exception():
                 LOG.warning(_LW('Error in deploy of node %(node)s: %(err)s'),
                             {'node': task.node.uuid, 'err': e})
+                task.process_event('fail')
                 node.last_error = _("Failed to deploy. Error: %s") % e
-                node.provision_state = states.DEPLOYFAIL
-                node.target_provision_state = states.NOSTATE
-                # NOTE(deva): there is no need to clear conductor_affinity
         else:
             # NOTE(deva): Some drivers may return states.DEPLOYWAIT
             #             eg. if they are waiting for a callback
             if new_state == states.DEPLOYDONE:
-                node.target_provision_state = states.NOSTATE
-                node.provision_state = states.ACTIVE
                 LOG.info(_LI('Successfully deployed node %(node)s with '
                              'instance %(instance)s.'),
                          {'node': node.uuid, 'instance': node.instance_uuid})
-            else:
-                node.provision_state = new_state
+                task.process_event('done')
+            elif new_state == states.DEPLOYWAIT:
+                task.provess_event('wait')
         finally:
             node.save()
 
