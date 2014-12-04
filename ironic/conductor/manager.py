@@ -781,7 +781,7 @@ class ConductorManager(periodic_task.PeriodicTasks):
         node = task.node
         try:
             task.driver.deploy.clean_up(task)
-            new_state = task.driver.deploy.tear_down(task)
+            task.driver.deploy.tear_down(task)
         except Exception as e:
             with excutils.save_and_reraise_exception():
                 LOG.warning(_LW('Error in tear_down of node %(node)s: '

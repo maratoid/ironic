@@ -87,7 +87,8 @@ class FSM(object):
             return False
         return self._states[self._current.name]['terminal']
 
-    def add_state(self, state, terminal=False, on_enter=None, on_exit=None, target=None):
+    def add_state(self, state, on_enter=None, on_exit=None,
+            target=None, terminal=None):
         """Adds a given state to the state machine.
 
         The on_enter and on_exit callbacks, if provided will be expected to

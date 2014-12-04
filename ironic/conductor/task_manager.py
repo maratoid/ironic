@@ -104,8 +104,8 @@ import retrying
 
 from ironic.common import driver_factory
 from ironic.common import exception
-from ironic.common import states
 from ironic.common.i18n import _LW
+from ironic.common import states
 from ironic import objects
 from ironic.openstack.common import log as logging
 
