@@ -1404,6 +1404,10 @@ def _do_node_tear_down(task):
         LOG.info(_LI('Successfully unprovisioned node %(node)s with '
                      'instance %(instance)s.'),
                  {'node': node.uuid, 'instance': node.instance_uuid})
+        # NOTE(deva): For compatibility with "NOSTATE is None"
+        #             we need to clear the target_state here manually
+        #             This can be removed once we migrate to an AVAILABLE state
+        node.target_provision_state = None
     finally:
         # NOTE(deva): there is no need to unset conductor_affinity
         # because it is a reference to the most recent conductor which
