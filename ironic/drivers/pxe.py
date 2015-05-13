@@ -27,6 +27,7 @@ from ironic.drivers.modules.amt import power as amt_power
 from ironic.drivers.modules.amt import vendor as amt_vendor
 from ironic.drivers.modules.cimc import management as cimc_mgmt
 from ironic.drivers.modules.cimc import power as cimc_power
+from ironic.drivers.modules import amttool
 from ironic.drivers.modules import iboot
 from ironic.drivers.modules.ilo import deploy as ilo_deploy
 from ironic.drivers.modules.ilo import inspect as ilo_inspect
@@ -80,6 +81,22 @@ class PXEAndIPMIToolDriver(base.BaseDriver):
         self.vendor = utils.MixinVendorInterface(
             self.mapping,
             driver_passthru_mapping=self.driver_passthru_mapping)
+
+
+class PXEAndAMTToolDriver(base.BaseDriver):
+    """PXE + AMTTool driver.
+
+    This driver implements the 'core' functionality, combining
+    :class:`ironic.drivers.amttool.AMTPower` for power management with
+    :class:`ironic.drivers.pxe.PXE` for image deployment. Implementations are in
+    those respective classes; this class is merely the glue between them.
+    """
+
+    def __init__(self):
+        self.power = amttool.AMTPower()
+        self.deploy = pxe.PXEDeploy()
+        self.management = amttool.AMTManagement()
+        self.vendor = pxe.VendorPassthru()
 
 
 class PXEAndSSHDriver(base.BaseDriver):
