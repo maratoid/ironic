@@ -24,6 +24,7 @@ from ironic.drivers.modules.cimc import management as cimc_mgmt
 from ironic.drivers.modules.cimc import power as cimc_power
 from ironic.drivers.modules import iboot
 from ironic.drivers.modules import inspector
+from ironic.drivers.modules import amttool
 from ironic.drivers.modules import ipminative
 from ironic.drivers.modules import ipmitool
 from ironic.drivers.modules import pxe
@@ -249,5 +250,21 @@ class AgentAndIBootDriver(base.BaseDriver):
                 reason=_("Unable to import iboot library"))
         self.power = iboot.IBootPower()
         self.boot = pxe.PXEBoot()
+        self.deploy = agent.AgentDeploy()
+        self.vendor = agent.AgentVendorInterface()
+
+
+class AgentAndAMTToolDriver(base.BaseDriver):
+    """Agent + AMTTool driver.
+
+    This driver implements the 'core' functionality, combining
+    :class:`ironic.drivers.amttool.AMTPower` for power management with
+    :class:`ironic.drivers.agent.Agent` for image deployment. Implementations
+    are in those respective classes; this class is merely the glue between them.
+    """
+
+    def __init__(self):
+        self.power = amttool.AMTPower()
+        self.management = amttool.AMTManagement()
         self.deploy = agent.AgentDeploy()
         self.vendor = agent.AgentVendorInterface()
