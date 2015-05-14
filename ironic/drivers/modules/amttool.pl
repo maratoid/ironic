@@ -142,6 +142,7 @@ commands:
    powerup         - turn on machine.
    powerdown       - turn off machine.
    powercycle      - powercycle machine.
+   powerinfo       - print power status
 
 AMT 2.5+ only:
    netinfo         - print network config.
@@ -246,7 +247,12 @@ sub print_general_info() {
 	my $powerstate = $rcs->GetSystemPowerState()->paramsout;
 	printf "Powerstate:   %s\n", $ps [ $powerstate & 0x0f ];
 }
-	
+
+sub print_power_info() {
+	my $powerstate = $rcs->GetSystemPowerState()->paramsout;
+	printf "Powerstate:   %s\n", $ps [ $powerstate & 0x0f ];
+}
+
 sub print_remote_info() {
 	my @rccaps = $rcs->GetRemoteControlCapabilities()->paramsout;
 	printf "Remote Control Capabilities:\n";
@@ -296,25 +302,18 @@ sub remote_control($$) {
 
 	my $hostname = $nas->GetHostName()->paramsout;
 	my $domainname = $nas->GetDomainName()->paramsout;
-	printf "host %s.%s, %s [y/N] ? ", $hostname, $domainname, $command;
-	my $reply = <>;
-	if ($reply =~ m/^(y|yes)$/i) {
-		printf "execute: %s\n", $command;
-		push (@args, SOAP::Data->name('Command' => $rcc{$command}));
-		push (@args, SOAP::Data->name('IanaOemNumber' => 343));
-		if (defined($special) && defined($rccs{$special})) {
-			push (@args, SOAP::Data->name('SpecialCommand' 
-						      => $rccs{$special} ));
-		}
-		if (defined($special) && defined($rccs_oem{$special})) {
-			push (@args, SOAP::Data->name('SpecialCommand' 
-						      => $rccs_oem{$special} ));
-			push (@args, SOAP::Data->name('OEMparameters' => 1 ));
-		}
-		do_soap($rcs, "RemoteControl", @args);
-	} else {
-		printf "canceled\n";
-	}
+    push (@args, SOAP::Data->name('Command' => $rcc{$command}));
+    push (@args, SOAP::Data->name('IanaOemNumber' => 343));
+    if (defined($special) && defined($rccs{$special})) {
+        push (@args, SOAP::Data->name('SpecialCommand' 
+                          => $rccs{$special} ));
+    }
+    if (defined($special) && defined($rccs_oem{$special})) {
+        push (@args, SOAP::Data->name('SpecialCommand' 
+                          => $rccs_oem{$special} ));
+        push (@args, SOAP::Data->name('OEMparameters' => 1 ));
+    }
+    do_soap($rcs, "RemoteControl", @args);
 }
 
 sub ipv4_addr($$) {
@@ -400,6 +399,8 @@ if ($amt_command eq "info") {
 } elsif ($amt_command eq "netconf") {
 	check_amt_version(2,5);
 	configure_network(@ARGV);
+} elsif ($amt_command eq "powerinfo") {
+    print_power_info;
 } elsif ($amt_command =~ m/^(reset|powerup|powerdown|powercycle)$/) {
 	remote_control($amt_command, $amt_arg);
 } else {
