@@ -191,12 +191,9 @@ class AMTPower(base.PowerInterface):
 
     @task_manager.require_exclusive_lock
     def reboot(self, task):
-        driver_info = _parse_driver_info(task.node)
-        _power_off(driver_info)
-        state = _power_on(driver_info)
-
-        if state != states.POWER_ON:
-            raise exception.PowerStateFailure(pstate=states.POWER_ON)
+        self.set_power_state(task, states.POWER_OFF)
+        time.sleep(3)
+        self.set_power_state(task, states.POWER_ON)
 
 
 class AMTManagement(base.ManagementInterface):
