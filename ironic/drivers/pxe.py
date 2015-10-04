@@ -98,6 +98,7 @@ class PXEAndAMTToolDriver(base.BaseDriver):
 
     def __init__(self):
         self.power = amttool.AMTPower()
+        self.boot = pxe.PXEBoot()
         self.deploy = pxe.PXEDeploy()
         self.management = amttool.AMTManagement()
         self.vendor = pxe.VendorPassthru()
