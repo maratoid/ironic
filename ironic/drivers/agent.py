@@ -197,5 +197,6 @@ class AgentAndAMTToolDriver(base.BaseDriver):
     def __init__(self):
         self.power = amttool.AMTPower()
         self.management = amttool.AMTManagement()
+        self.boot = pxe.PXEBoot()
         self.deploy = agent.AgentDeploy()
         self.vendor = agent.AgentVendorInterface()
