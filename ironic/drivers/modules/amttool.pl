@@ -145,6 +145,7 @@ commands:
    powerup         - turn on machine.
    powerdown       - turn off machine.
    powercycle      - powercycle machine.
+   powerinfo       - print power status
 
 AMT 2.5+ only:
    netinfo         - print network config.
@@ -251,7 +252,12 @@ sub print_general_info() {
 	my $powerstate = $rcs->GetSystemPowerState()->paramsout;
 	printf "Powerstate:   %s\n", $ps [ $powerstate & 0x0f ];
 }
-	
+
+sub print_power_info() {
+	my $powerstate = $rcs->GetSystemPowerState()->paramsout;
+	printf "Powerstate:   %s\n", $ps [ $powerstate & 0x0f ];
+}
+
 sub print_remote_info() {
 	my @rccaps = $rcs->GetRemoteControlCapabilities()->paramsout;
 	printf "Remote Control Capabilities:\n";
@@ -410,6 +416,8 @@ if ($amt_command eq "info") {
 } elsif ($amt_command eq "netconf") {
 	check_amt_version(2,5);
 	configure_network(@ARGV);
+} elsif ($amt_command eq "powerinfo") {
+    print_power_info;
 } elsif ($amt_command =~ m/^(reset|powerup|powerdown|powercycle)$/) {
 	remote_control($amt_command, $amt_arg);
 } else {
