@@ -21,6 +21,9 @@ $main::amt_pass = $ENV{'AMT_PASSWORD'};
 my $amt_debug = 0;
 $amt_debug = $ENV{'AMT_DEBUG'} if defined($ENV{'AMT_DEBUG'});
 
+my $amt_skip_prompt = 0;
+$amt_skip_prompt = $ENV{'AMT_SKIP_PROMPT'} if defined($ENV{'AMT_SKIP_PROMPT'});
+
 my $amt_command = shift;
 $amt_command = "info" if !defined($amt_command);
 my $amt_arg = shift;
@@ -148,6 +151,8 @@ AMT 2.5+ only:
    netconf <args>  - configure network (check manpage).
 
 Password is passed via AMT_PASSWORD environment variable.
+
+Disable interactive prompt by setting AMT_SKIP_PROMPT environment variable.
 
 EOF
 }
@@ -296,25 +301,30 @@ sub remote_control($$) {
 
 	my $hostname = $nas->GetHostName()->paramsout;
 	my $domainname = $nas->GetDomainName()->paramsout;
-	printf "host %s.%s, %s [y/N] ? ", $hostname, $domainname, $command;
-	my $reply = <>;
-	if ($reply =~ m/^(y|yes)$/i) {
-		printf "execute: %s\n", $command;
-		push (@args, SOAP::Data->name('Command' => $rcc{$command}));
-		push (@args, SOAP::Data->name('IanaOemNumber' => 343));
-		if (defined($special) && defined($rccs{$special})) {
-			push (@args, SOAP::Data->name('SpecialCommand' 
-						      => $rccs{$special} ));
-		}
-		if (defined($special) && defined($rccs_oem{$special})) {
-			push (@args, SOAP::Data->name('SpecialCommand' 
-						      => $rccs_oem{$special} ));
-			push (@args, SOAP::Data->name('OEMparameters' => 1 ));
-		}
-		do_soap($rcs, "RemoteControl", @args);
-	} else {
-		printf "canceled\n";
-	}
+
+    if (not $amt_skip_prompt) {
+        printf "host %s.%s, %s [y/N] ? ", $hostname, $domainname, $command;
+        my $reply = <>;
+        if ($reply =~ m/^(y|yes)$/i) {
+                printf "execute: %s\n", $command;
+        } else {
+            printf "canceled\n";
+            return
+        }
+    }
+
+    push (@args, SOAP::Data->name('Command' => $rcc{$command}));
+    push (@args, SOAP::Data->name('IanaOemNumber' => 343));
+    if (defined($special) && defined($rccs{$special})) {
+        push (@args, SOAP::Data->name('SpecialCommand' 
+                          => $rccs{$special} ));
+    }
+    if (defined($special) && defined($rccs_oem{$special})) {
+        push (@args, SOAP::Data->name('SpecialCommand' 
+                          => $rccs_oem{$special} ));
+        push (@args, SOAP::Data->name('OEMparameters' => 1 ));
+    }
+    do_soap($rcs, "RemoteControl", @args);
 }
 
 sub ipv4_addr($$) {
