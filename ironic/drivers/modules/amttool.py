@@ -160,7 +160,7 @@ def _reboot(driver_info):
     _prep_amttool(driver_info)
     out, err = _exec_amttool(driver_info, 'reboot')
 
-    return _get_power_state(driver_info)        
+    return states.REBOOT       
 
 
 def _parse_driver_info(node):
