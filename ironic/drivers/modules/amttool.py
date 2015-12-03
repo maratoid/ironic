@@ -40,8 +40,7 @@ CONF = cfg.CONF
 
 opts = [
     cfg.StrOpt('amttool_path',
-               default=paths.basedir_def(
-                   'drivers/modules/amttool.pl'),
+               default='/usr/local/bin/amtctrl',
                help='Path to the amttool executable'),
 ]
 
@@ -59,31 +58,55 @@ REQUIRED_PROPERTIES = {
 
 
 POWER_MAP = {
-    'S0': states.POWER_ON,
-    'S5': states.POWER_OFF,
+    'on': states.POWER_ON,
+    'off': states.POWER_OFF,
+    'reboot': states.REBOOT
 }
 
 
 BOOT_DEVICE_MAP = {
     boot_devices.PXE: 'pxe',
-    boot_devices.DISK: 'hd',
-    boot_devices.CDROM: 'cd',
-    boot_devices.BIOS: 'bios',
-    boot_devices.SAFE: 'hdsafe',
+    boot_devices.DISK: 'hd'
 }
 
+def _unprep_amttool(info):
+    args = [
+            CONF.amt.amttool_path,
+            'rm',
+            info['address']
+            ]
+    try:
+        out, err = utils.execute(*args)
+    except processutils.ProcessExecutionError as e:
+        LOG.error(e)
+        raise exception.AMTFailure('_unprep_amttool')
+    else:
+        return out, err
 
-def _exec_amttool(info, command, special=''):
-    env = {'AMT_PASSWORD': info['password']}
+def _prep_amttool(info):
+    args = [
+            CONF.amt.amttool_path,
+            'add',
+            info['address'],
+            info['address'],
+            info['password']
+            ]
+    try:
+        out, err = utils.execute(*args)
+    except processutils.ProcessExecutionError as e:
+        LOG.error(e)
+        raise exception.AMTFailure('_prep_amttool')
+    else:
+        return out, err
 
+def _exec_amttool(info, command):
     args = [
             CONF.amt.amttool_path,
             info['address'],
-            command,
-            special
+            command
             ]
     try:
-        out, err = utils.execute(*args, env_variables=env)
+        out, err = utils.execute(*args)
     except processutils.ProcessExecutionError as e:
         LOG.error(e)
         raise exception.AMTFailure(cmd=command)
@@ -92,12 +115,20 @@ def _exec_amttool(info, command, special=''):
 
 
 def _get_power_state(driver_info):
-    out, err = _exec_amttool(driver_info, 'powerinfo')
+    _unprep_amttool(driver_info)
+    _rep_amttool(driver_info)
+    out, err = _exec_amttool(driver_info, 'status')
 
     ps = ''
     for line in out.split('\n'):
-        if line.startswith('Powerstate'):
-            ps = line[14:16]
+        if line.startswith('on'):
+            ps = 'on'
+            break
+        elif line.startswith('off'):
+            ps = 'off'
+            break
+        elif line.startswith('reboot'):
+            ps = 'reboot'
             break
     ps = POWER_MAP[ps]
     if not ps:
@@ -106,33 +137,30 @@ def _get_power_state(driver_info):
 
 
 def _power_on(driver_info, device=''):
-    out, err = _exec_amttool(driver_info, 'powerup', special=device)
+    _unprep_amttool(driver_info)
+    _rep_amttool(driver_info)
 
-    ps = None
-    result = False
-    for line in out.split('\n'):
-        if line.startswith('result'):
-            result = line.split(' ')[2]
-            break
-    if result == 'success':
-        return states.POWER_ON
-    else:
-        return _get_power_state(driver_info)
+    command = 'on'
+    if device == 'pxe':
+        command = 'pxeboot'
 
+    out, err = _exec_amttool(driver_info, command)
+
+    return _get_power_state(driver_info)
 
 def _power_off(driver_info):
-    out, err = _exec_amttool(driver_info, 'powerdown')
+    _unprep_amttool(driver_info)
+    _rep_amttool(driver_info)
+    out, err = _exec_amttool(driver_info, 'off')
 
-    ps = None
-    result = False
-    for line in out.split('\n'):
-        if line.startswith('result'):
-            result = line.split(' ')[2]
-            break
-    if result == 'success':
-        return states.POWER_OFF
-    else:
-        return _get_power_state(driver_info)
+    return _get_power_state(driver_info)
+
+def _reboot(driver_info):
+    _unprep_amttool(driver_info)
+    _rep_amttool(driver_info)
+    out, err = _exec_amttool(driver_info, 'reboot')
+
+    return _get_power_state(driver_info)        
 
 
 def _parse_driver_info(node):
@@ -185,6 +213,8 @@ class AMTPower(base.PowerInterface):
                 state = _power_on(driver_info)
         elif pstate == states.POWER_OFF:
             state = _power_off(driver_info)
+        elif pstate == states.REBOOT:
+            state = _reboot(driver_info)
         else:
             raise exception.InvalidParameterValue(_("set_power_state called "
                     "with invalid power state %s.") % pstate)
@@ -194,9 +224,7 @@ class AMTPower(base.PowerInterface):
 
     @task_manager.require_exclusive_lock
     def reboot(self, task):
-        self.set_power_state(task, states.POWER_OFF)
-        time.sleep(3)
-        self.set_power_state(task, states.POWER_ON)
+        self.set_power_state(task, states.REBOOT)
 
 
 class AMTManagement(base.ManagementInterface):
@@ -208,8 +236,7 @@ class AMTManagement(base.ManagementInterface):
         _parse_driver_info(task.node)
 
     def get_supported_boot_devices(self):
-        return [boot_devices.PXE, boot_devices.DISK, boot_devices.CDROM,
-                boot_devices.BIOS, boot_devices.SAFE]
+        return [boot_devices.PXE, boot_devices.DISK]
 
     def set_boot_device(self, task, device, persistent=False):
         if device not in self.get_supported_boot_devices():
