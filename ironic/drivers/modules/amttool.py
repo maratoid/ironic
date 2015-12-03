@@ -82,12 +82,13 @@ def _exec_amttool(info, command, special=''):
             command,
             special
             ]
-    # TODO: add error handling
     try:
         out, err = utils.execute(*args, env_variables=env)
-        return out, err
     except processutils.ProcessExecutionError as e:
-        LOG.error("CAUGHT err: %s" % e)
+        LOG.error(e)
+        raise exception.AMTFailure(cmd=command)
+    else:
+        return out, err
 
 
 def _get_power_state(driver_info):
