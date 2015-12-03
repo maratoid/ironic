@@ -116,7 +116,7 @@ def _exec_amttool(info, command):
 
 def _get_power_state(driver_info):
     _unprep_amttool(driver_info)
-    _rep_amttool(driver_info)
+    _prep_amttool(driver_info)
     out, err = _exec_amttool(driver_info, 'status')
 
     ps = ''
@@ -138,7 +138,7 @@ def _get_power_state(driver_info):
 
 def _power_on(driver_info, device=''):
     _unprep_amttool(driver_info)
-    _rep_amttool(driver_info)
+    _prep_amttool(driver_info)
 
     command = 'on'
     if device == 'pxe':
@@ -150,14 +150,14 @@ def _power_on(driver_info, device=''):
 
 def _power_off(driver_info):
     _unprep_amttool(driver_info)
-    _rep_amttool(driver_info)
+    _prep_amttool(driver_info)
     out, err = _exec_amttool(driver_info, 'off')
 
     return _get_power_state(driver_info)
 
 def _reboot(driver_info):
     _unprep_amttool(driver_info)
-    _rep_amttool(driver_info)
+    _prep_amttool(driver_info)
     out, err = _exec_amttool(driver_info, 'reboot')
 
     return _get_power_state(driver_info)        
