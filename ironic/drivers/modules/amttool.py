@@ -106,19 +106,15 @@ def _get_power_state(driver_info):
 
 
 def _power_on(driver_info, device=''):
-    if device
-         out, err = _exec_amttool(driver_info, AMTC_DEVICE_MAP[device])
-         out, err = _exec_amttool(driver_info, '-F')
+    if device:
+        out, err = _exec_amttool(driver_info, AMTC_DEVICE_MAP[device])
+        out, err = _exec_amttool(driver_info, '-F')
 
     out, err = _exec_amttool(driver_info, '-U')
     return _get_power_state(driver_info)
 
 
 def _power_off(driver_info):
-    if device:
-         out, err = _exec_amttool(driver_info, AMTC_DEVICE_MAP[device])
-         out, err = _exec_amttool(driver_info, '-F')
-
     out, err = _exec_amttool(driver_info, '-D')
     return _get_power_state(driver_info)
 
