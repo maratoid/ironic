@@ -115,6 +115,9 @@ def _power_on(driver_info, device=''):
 
 
 def _power_off(driver_info):
+    out, err = _exec_amttool(driver_info, '-C')
+
+def _power_off(driver_info):
     out, err = _exec_amttool(driver_info, '-D')
     return _get_power_state(driver_info)
 
@@ -151,6 +154,10 @@ class AMTPower(base.PowerInterface):
         driver_info = _parse_driver_info(task.node)
         return _get_power_state(driver_info)
 
+    def reboot(self, task)
+        driver_info = _parse_driver_info(task.node)
+        return _reboot(driver_info)
+
     @task_manager.require_exclusive_lock
     def set_power_state(self, task, pstate):
         driver_info = _parse_driver_info(task.node)
@@ -178,9 +185,7 @@ class AMTPower(base.PowerInterface):
 
     @task_manager.require_exclusive_lock
     def reboot(self, task):
-        self.set_power_state(task, states.POWER_OFF)
-        time.sleep(3)
-        self.set_power_state(task, states.POWER_ON)
+        self.reboot(task)
 
 
 class AMTManagement(base.ManagementInterface):
@@ -192,8 +197,7 @@ class AMTManagement(base.ManagementInterface):
         _parse_driver_info(task.node)
 
     def get_supported_boot_devices(self):
-        return [boot_devices.PXE, boot_devices.DISK, boot_devices.CDROM,
-                boot_devices.BIOS, boot_devices.SAFE]
+        return [boot_devices.PXE, boot_devices.DISK]
 
     def set_boot_device(self, task, device, persistent=False):
         if device not in self.get_supported_boot_devices():
