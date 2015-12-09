@@ -115,7 +115,7 @@ def _power_on(driver_info, device=''):
 
 
 def _power_off(driver_info):
-    if device
+    if device:
          out, err = _exec_amttool(driver_info, AMTC_DEVICE_MAP[device])
          out, err = _exec_amttool(driver_info, '-F')
 
