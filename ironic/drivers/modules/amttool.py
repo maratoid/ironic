@@ -99,7 +99,7 @@ def _get_power_state(driver_info):
     out, err = _exec_amttool(driver_info, '-I')
     parsed_json = json.loads(out)
     
-    ps = POWER_MAP[parsed_json[info['address']]['amt']]
+    ps = POWER_MAP[parsed_json[driver_info['address']]['amt']]
     if not ps:
         raise exception.PowerStateFailure(pstate=None)
     return ps
