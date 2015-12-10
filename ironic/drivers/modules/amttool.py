@@ -114,7 +114,7 @@ def _power_on(driver_info, device=''):
     return _get_power_state(driver_info)
 
 
-def _power_off(driver_info):
+def _reboot(driver_info):
     out, err = _exec_amttool(driver_info, '-C')
 
 def _power_off(driver_info):
@@ -154,7 +154,7 @@ class AMTPower(base.PowerInterface):
         driver_info = _parse_driver_info(task.node)
         return _get_power_state(driver_info)
 
-    def reboot(self, task)
+    def reboot(self, task):
         driver_info = _parse_driver_info(task.node)
         return _reboot(driver_info)
 
