@@ -154,10 +154,6 @@ class AMTPower(base.PowerInterface):
         driver_info = _parse_driver_info(task.node)
         return _get_power_state(driver_info)
 
-    def reboot(self, task):
-        driver_info = _parse_driver_info(task.node)
-        return _reboot(driver_info)
-
     @task_manager.require_exclusive_lock
     def set_power_state(self, task, pstate):
         driver_info = _parse_driver_info(task.node)
@@ -185,7 +181,8 @@ class AMTPower(base.PowerInterface):
 
     @task_manager.require_exclusive_lock
     def reboot(self, task):
-        self.reboot(task)
+        driver_info = _parse_driver_info(task.node)
+        return _reboot(driver_info)
 
 
 class AMTManagement(base.ManagementInterface):
