@@ -113,6 +113,7 @@ def _power_on(driver_info, device=''):
         out, err = _exec_amttool(driver_info, AMTC_DEVICE_MAP[device])
 
     out, err = _exec_amttool(driver_info, '-U')
+    parsed_json = json.loads(out)
 
     if parsed_json[driver_info['address']]['amt'] == '8':
         return states.POWER_ON
@@ -121,6 +122,8 @@ def _power_on(driver_info, device=''):
 
 def _power_off(driver_info):
     out, err = _exec_amttool(driver_info, '-D')
+    parsed_json = json.loads(out)
+    
     if parsed_json[driver_info['address']]['amt'] == '8':
         return states.POWER_ON
     else:
