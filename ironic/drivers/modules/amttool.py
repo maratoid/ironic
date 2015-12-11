@@ -112,10 +112,6 @@ def _power_on(driver_info, device=''):
     out, err = _exec_amttool(driver_info, '-U')
     return _get_power_state(driver_info)
 
-
-def _reboot(driver_info):
-    out, err = _exec_amttool(driver_info, '-R')
-
 def _power_off(driver_info):
     out, err = _exec_amttool(driver_info, '-D')
     return _get_power_state(driver_info)
@@ -180,8 +176,9 @@ class AMTPower(base.PowerInterface):
 
     @task_manager.require_exclusive_lock
     def reboot(self, task):
-        driver_info = _parse_driver_info(task.node)
-        return _reboot(driver_info)
+        self.set_power_state(task, states.POWER_OFF)
+        time.sleep(10)
+        self.set_power_state(task, states.POWER_ON)
 
 
 class AMTManagement(base.ManagementInterface):
