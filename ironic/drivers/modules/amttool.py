@@ -67,11 +67,15 @@ POWER_MAP = {
 BOOT_DEVICE_MAP = {
     boot_devices.PXE: 'pxe',
     boot_devices.DISK: 'hd',
+    boot_devices.CDROM: 'cd',
+    boot_devices.BIOS: 'bios',
+    boot_devices.SAFE: 'hdsafe',
 }
 
 AMTC_DEVICE_MAP = {
     'pxe': '-X',
     'hd': '-H',
+    'hdsafe': '-H',
 }
 
 
@@ -110,11 +114,18 @@ def _power_on(driver_info, device=''):
         out, err = _exec_amttool(driver_info, AMTC_DEVICE_MAP[device])
 
     out, err = _exec_amttool(driver_info, '-U')
-    return _get_power_state(driver_info)
+
+    if parsed_json[driver_info['address']]['amt'] == '8':
+        return states.POWER_ON
+    else:
+        return _get_power_state(driver_info) 
 
 def _power_off(driver_info):
     out, err = _exec_amttool(driver_info, '-D')
-    return _get_power_state(driver_info)
+    if parsed_json[driver_info['address']]['amt'] == '8':
+        return states.POWER_ON
+    else:
+        return _get_power_state(driver_info) 
 
 
 def _parse_driver_info(node):
