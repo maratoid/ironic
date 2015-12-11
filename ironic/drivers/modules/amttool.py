@@ -125,7 +125,7 @@ def _power_off(driver_info):
     parsed_json = json.loads(out)
     
     if parsed_json[driver_info['address']]['amt'] == '8':
-        return states.POWER_ON
+        return states.POWER_OFF
     else:
         return _get_power_state(driver_info) 
 
