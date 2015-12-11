@@ -84,11 +84,10 @@ def _exec_amttool(info, command):
 
     args = [
             CONF.amt.amttool_path,
-            info['address'],
             command,
-            '-dj',
-            '-t',
+            '-jdt',
             '600',
+            info['address'],
             ]
     try:
         out, err = utils.execute(*args, env_variables=env)
